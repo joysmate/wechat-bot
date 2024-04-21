@@ -3,6 +3,7 @@ import inquirer from 'inquirer'
 import qrTerminal from 'qrcode-terminal'
 import { defaultMessage, shardingMessage } from './sendMessage.js'
 import dotenv from 'dotenv'
+import { initDatabase } from './database.js'
 const env = dotenv.config().parsed // 环境参数
 
 // 扫码
@@ -87,6 +88,7 @@ function botStart() {
 // 控制启动
 function handleStart(type) {
   serviceType = type
+  initDatabase();
   console.log('🌸🌸🌸 / type: ', type)
   switch (type) {
     case 'ChatGPT':

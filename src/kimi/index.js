@@ -1,5 +1,11 @@
 import axios from 'axios'
 import dotenv from 'dotenv'
+import fs from 'fs'
+import { queryRecentTexts} from '../wechaty/database.js';
+
+const file_content = await fs.promises.readFile('/Users/rone/llm/wechat-bot/pdfs/qa1a.txt', 'utf8');
+console.log('File content:', file_content.length);
+
 const env = dotenv.config().parsed // 环境参数
 
 const domain = 'https://api.moonshot.cn'
@@ -19,7 +25,7 @@ const configuration = {
     Model ID, 可以通过 List Models 获取
     目前可选 moonshot-v1-8k | moonshot-v1-32k | moonshot-v1-128k
   */
-  model: "moonshot-v1-128k",
+  model: "moonshot-v1-8k",
   /* 
     使用什么采样温度，介于 0 和 1 之间。较高的值（如 0.7）将使输出更加随机，而较低的值（如 0.2）将使其更加集中和确定性。
     如果设置，值域须为 [0, 1] 我们推荐 0.3，以达到较合适的效果。
@@ -31,29 +37,46 @@ const configuration = {
     比如对一个 moonshot-v1-8k 模型，它的最大输入 + 输出总长度是 8192，当输入 messages 总长度为 4096 的时候，您最多只能设置为 4096，
     否则我们服务会返回不合法的输入参数（ invalid_request_error ），并拒绝回答。如果您希望获得“输入的精确 token 数”，可以使用下面的“计算 Token” API 使用我们的计算器获得计数。
   */
-  max_tokens: 5000,
+  max_tokens: 1000,
   /* 
     是否流式返回, 默认 false, 可选 true
   */
   stream: false,
 }
 
-export async function getKimiReply(prompt) {
+export async function getKimiReply(prompt, userId, currentTime) {
   try {
+    let sys = [
+      {
+        role: "system",
+        content: file_content,
+      },
+      {
+        role: "system",
+        content: `你是圣严法师，刚刚上传的qa1s.txt，是你的佛学著作，包含你对佛学的主要观点。
+                  接下来，你将和用户聊天。你的每一次回复将按照如下方式生成：
+                  首先对用户的输入进行类型的判断。
+                  如果输入是倾诉性的、笼统的问题，或者你们的对话正处于一个新话题的开始阶段时，请结合你自己的佛学观点，多问我一些启发式的问题，从而可以更好的开导用户。
+                  如果输入是有明确目的的、包含很多细节的问题，或者你们的对话处于一个话题的收尾阶段时，请结合你自己的佛学观点，直接给出答案，无需再问用户问题，以免造成用户的反感。
+                  最后，关于回复的形式，请采用聊天说话的方式，用非常精简的一两句话形成回复。你的回复会通过语音合成进行播放，所以请务必精简且口语化，以纯文字回复，不要分段，更不要有适合书面的文本格式。
+                  同时需要注意，关于回复的内容，不要太像心灵鸡汤，也不要太像教科书，而是像朋友间的聊天和交心。`
+      }
+    ]
+    let history = await queryRecentTexts(userId, currentTime)
+    let msgs = sys.concat(history)
+
+    console.log(JSON.stringify(history))
+    console.log(JSON.stringify(msgs))
+
     const res = await axios.post(server.chat, Object.assign(configuration, {
       /* 
         包含迄今为止对话的消息列表。
         要保持对话的上下文，需要将之前的对话历史并入到该数组
         这是一个结构体的列表，每个元素类似如下：{"role": "user", "content": "你好"} role 只支持 system,user,assistant 其一，content 不得为空
       */
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
+      messages: msgs,
     }), {
-      timeout: 10000,
+      timeout: 60000,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${env.KIMI_API_KEY}`

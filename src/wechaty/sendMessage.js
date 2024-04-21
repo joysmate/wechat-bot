@@ -2,6 +2,7 @@ import { getGptReply } from '../openai/index.js'
 import { getKimiReply } from '../kimi/index.js'
 import { botName, roomWhiteList, aliasWhiteList } from '../../config.js'
 import { getServe } from './serve.js'
+import {insertData, queryRecentTexts} from './database.js'
 
 /**
  * 默认消息发送
@@ -27,19 +28,35 @@ export async function defaultMessage(msg, bot, ServiceType = 'GPT') {
   // TODO 你们可以根据自己的需求修改这里的逻辑
     if (isText && !isBotSelf) {
     console.log(JSON.stringify(msg))
-        if ((Date.now() - 1e3 * msg.payload.timestamp) > 3000) return
+    if ((Date.now() - 1e3 * msg.payload.timestamp) > 3000) return
     try {
-      const trimed = content.substr(2)
-      if (trimed.length < 5) return
-      
       // 区分群聊和私聊
       if (isRoom && room) {
-        await room.say(await getReply(trimed.replace(`${botName}`, '')))
+        const trimed = content//.substr(1)
+        //if (trimed.length < 5) return
+
+        const currentTime = new Date();
+        insertData(currentTime.toISOString(), msg.payload.talkerId, trimed.replace(`${botName}`, ''));
+        
+        const reply = await getReply(trimed.replace(`${botName}`, ''), msg.payload.talkerId, currentTime);
+
+        const ct2 = new Date();
+        await insertData(ct2.toISOString(), msg.payload.talkerId, reply);
+
+        await room.say(reply)
         return
       }
       // 私人聊天，白名单内的直接发送
       if (isAlias && !room) {
-        await contact.say(await getReply(trimed))
+        const currentTime = new Date();
+        await insertData(currentTime.toISOString(), msg.payload.talkerId, msg.payload.text);
+        
+        const reply = await getReply(content, msg.payload.talkerId, currentTime);
+
+        const ct2 = new Date();
+        await insertData(ct2.toISOString(), msg.payload.talkerId, reply);
+
+        await contact.say(reply)
       }
     } catch (e) {
       console.error(e)

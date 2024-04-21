@@ -18,7 +18,7 @@ async function handleRequest(type) {
       break
     case 'Kimi':
       if (env.KIMI_API_KEY) {
-        const message = await getKimiReply("你好!")
+        const message = await getKimiReply("大乘和小乘的区别")
         console.log('🌸🌸🌸 / reply: ', message)
         return
       }
