@@ -28,34 +28,16 @@ export async function defaultMessage(msg, bot, ServiceType = 'GPT') {
   // TODO 你们可以根据自己的需求修改这里的逻辑
     if (isText && !isBotSelf) {
     console.log(JSON.stringify(msg))
-    if ((Date.now() - 1e3 * msg.payload.timestamp) > 3000) return
     try {
       // 区分群聊和私聊
       if (isRoom && room) {
-        const trimed = content//.substr(1)
-        //if (trimed.length < 5) return
-
-        const currentTime = new Date();
-        insertData(currentTime.toISOString(), msg.payload.talkerId, trimed.replace(`${botName}`, ''));
-        
-        const reply = await getReply(trimed.replace(`${botName}`, ''), msg.payload.talkerId, currentTime);
-
-        const ct2 = new Date();
-        await insertData(ct2.toISOString(), msg.payload.talkerId, reply);
-
+        const reply = await getReply(content.replace(`${botName}`, ''), msg.payload.talkerId);
         await room.say(reply)
         return
       }
       // 私人聊天，白名单内的直接发送
-      if (isAlias && !room) {
-        const currentTime = new Date();
-        await insertData(currentTime.toISOString(), msg.payload.talkerId, msg.payload.text);
-        
-        const reply = await getReply(content, msg.payload.talkerId, currentTime);
-
-        const ct2 = new Date();
-        await insertData(ct2.toISOString(), msg.payload.talkerId, reply);
-
+      if (isAlias && !room && receiver.name() == "AnyTime") {
+        const reply = await getReply(content, msg.payload.talkerId);
         await contact.say(reply)
       }
     } catch (e) {

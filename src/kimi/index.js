@@ -1,9 +1,9 @@
 import axios from 'axios'
 import dotenv from 'dotenv'
 import fs from 'fs'
-import { queryRecentTexts} from '../wechaty/database.js';
+import { insertData, queryRecentTexts} from '../wechaty/database.js';
 
-const file_content = await fs.promises.readFile('/Users/rone/llm/wechat-bot/pdfs/qa1a.txt', 'utf8');
+const file_content = await fs.promises.readFile('/root/wechat-bot/pdfs/qa1a.txt', 'utf8');
 console.log('File content:', file_content.length);
 
 const env = dotenv.config().parsed // 环境参数
@@ -44,29 +44,48 @@ const configuration = {
   stream: false,
 }
 
-export async function getKimiReply(prompt, userId, currentTime) {
+export async function getKimiReply(prompt, userId) {
+  // let t1 = new Date();
+  // let history = await queryRecentTexts(userId, t1);
+  // console.log(JSON.stringify(history));
+
+  // await insertData(t1.toISOString(), userId, prompt, 'user');
+
+  // let t2 = new Date();
+  // await insertData(t2.toISOString(), userId, choices[0].message.content, 'assistant');
+  let history = "";
+  let reply = await getKimiInitReply(history, prompt);
+  let judge = await getKimiJudgeReply(history, prompt, reply);
+  const keyword = "改进意见：";
+  const index = judge.indexOf(keyword);
+  let reply1 = "不变";
+  if (index !== -1) {
+    judge = judge.slice(index + keyword.length);
+    reply1 = await getKimiUpdateReply(history, prompt, reply, judge);
+  }
+  return reply + "（修改后：" + reply1 + "）";
+}
+
+async function getKimiInitReply(history, prompt) {
   try {
     let sys = [
+      // {
+      //   role: "system",
+      //   content: file_content,
+      // },
       {
         role: "system",
-        content: file_content,
-      },
-      {
-        role: "system",
-        content: `你是圣严法师，刚刚上传的qa1s.txt，是你的佛学著作，包含你对佛学的主要观点。
-                  接下来，你将和用户聊天。你的每一次回复将按照如下方式生成：
-                  首先对用户的输入进行类型的判断。
-                  如果输入是倾诉性的、笼统的问题，或者你们的对话正处于一个新话题的开始阶段时，请结合你自己的佛学观点，多问我一些启发式的问题，从而可以更好的开导用户。
-                  如果输入是有明确目的的、包含很多细节的问题，或者你们的对话处于一个话题的收尾阶段时，请结合你自己的佛学观点，直接给出答案，无需再问用户问题，以免造成用户的反感。
-                  最后，关于回复的形式，请采用聊天说话的方式，用非常精简的一两句话形成回复。你的回复会通过语音合成进行播放，所以请务必精简且口语化，以纯文字回复，不要分段，更不要有适合书面的文本格式。
-                  同时需要注意，关于回复的内容，不要太像心灵鸡汤，也不要太像教科书，而是像朋友间的聊天和交心。`
+        // 刚刚上传的qa1s.txt，是圣严法师的佛学著作，包含他对佛学的主要观点。
+        content: `你是圣严法师机器人，你需要扮演圣严法师和用户聊天，以通过你的图灵测试。
+圣严法师和用户聊天时，往往会结合自己的佛学观点，来安抚用户的情绪，开导用户，为用户答疑解惑。
+圣严法师说话言简意赅，往往采用口语化的表达，绝不会使用书面格式。
+这意味着，你的回复必须让用户无法分辨你是圣严法师还是机器人。`
       }
     ]
-    let history = await queryRecentTexts(userId, currentTime)
-    let msgs = sys.concat(history)
 
-    console.log(JSON.stringify(history))
-    console.log(JSON.stringify(msgs))
+    let msgs = sys; //.concat(history);
+    msgs.push({role: "user", content: prompt});
+    console.log(msgs)
 
     const res = await axios.post(server.chat, Object.assign(configuration, {
       /* 
@@ -100,3 +119,117 @@ export async function getKimiReply(prompt, userId, currentTime) {
 }
 
 
+async function getKimiJudgeReply(history, prompt, reply) {
+  try {
+    let sys = [
+      // {
+      //   role: "system",
+      //   content: file_content,
+      // },
+      {
+        role: "system",
+        content: `你是一个智能助理，你需要帮助用户判断，和他聊天的圣严法师，是圣严法师本人还是机器人。`
+      }
+    ]
+
+    let flatten_history = "（\n我：" + prompt + "\n圣严法师：" + reply + '\n）\n';
+
+    let xprompt = flatten_history + `以上括号里是我和圣严法师的对话记录。
+圣严法师和用户聊天时，往往会结合自己的佛学观点，来安抚用户的情绪，开导用户，为用户答疑解惑。
+圣严法师说话言简意赅，往往采用口语化的表达，绝不会使用书面格式。
+请帮我判断圣严法师的最后一条回复是他本人所写，还是机器人编写的？
+如果你判断是圣严法师本人所写，请直接返回“是本人”三个字，且不要包含其他任何内容。
+如果你判断是机器人编写的，请返回“是机器人编写的”，并返回一条你认为最重要的改进意见。`
+
+    let msgs = sys;
+    msgs.push({role: "user", content: xprompt});
+
+    console.log(msgs)
+
+
+    const res = await axios.post(server.chat, Object.assign(configuration, {
+      /* 
+        包含迄今为止对话的消息列表。
+        要保持对话的上下文，需要将之前的对话历史并入到该数组
+        这是一个结构体的列表，每个元素类似如下：{"role": "user", "content": "你好"} role 只支持 system,user,assistant 其一，content 不得为空
+      */
+      messages: msgs,
+    }), {
+      timeout: 60000,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${env.KIMI_API_KEY}`
+      },
+      // pass a http proxy agent
+      // proxy: {
+      //   host: 'localhost',
+      //   port: 7890,
+      // }
+    })
+
+    const { choices } = res.data;
+    return choices[0].message.content;
+  } catch (error) {
+    console.log("Kimi 错误对应详情可参考官网： https://platform.moonshot.cn/docs/api-reference#%E9%94%99%E8%AF%AF%E8%AF%B4%E6%98%8E");
+    console.log("常见的 401 一般意味着你鉴权失败, 请检查你的 API_KEY 是否正确。");
+    console.log("常见的 429 一般意味着你被限制了请求频次，请求频率过高，或 kimi 服务器过载，可以适当调整请求频率，或者等待一段时间再试。");
+    console.error(error.code);
+    console.error(error.message);
+  }
+}
+
+async function getKimiUpdateReply(history, prompt, reply, judge) {
+  try {
+    let sys = [
+      // {
+      //   role: "system",
+      //   content: file_content,
+      // },
+      {
+        role: "system",
+        content: `你是一个智能助理。`
+      }
+    ]
+
+    let flatten_history = "（\n用户：" + prompt + "\n圣严法师：" + reply + '\n）\n';
+
+    let xprompt = flatten_history + `以上括号里是用户和圣严法师的对话记录。
+请按照以下中括号内的改进意见，修改圣严法师的最后一条回复，并直接返回修改过的回复。
+改进意见是：【` + judge + '】'
+
+    let msgs = sys;
+    msgs.push({role: "user", content: xprompt});
+
+    console.log(msgs)
+
+
+    const res = await axios.post(server.chat, Object.assign(configuration, {
+      /* 
+        包含迄今为止对话的消息列表。
+        要保持对话的上下文，需要将之前的对话历史并入到该数组
+        这是一个结构体的列表，每个元素类似如下：{"role": "user", "content": "你好"} role 只支持 system,user,assistant 其一，content 不得为空
+      */
+      messages: msgs,
+    }), {
+      timeout: 60000,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${env.KIMI_API_KEY}`
+      },
+      // pass a http proxy agent
+      // proxy: {
+      //   host: 'localhost',
+      //   port: 7890,
+      // }
+    })
+
+    const { choices } = res.data;
+    return choices[0].message.content;
+  } catch (error) {
+    console.log("Kimi 错误对应详情可参考官网： https://platform.moonshot.cn/docs/api-reference#%E9%94%99%E8%AF%AF%E8%AF%B4%E6%98%8E");
+    console.log("常见的 401 一般意味着你鉴权失败, 请检查你的 API_KEY 是否正确。");
+    console.log("常见的 429 一般意味着你被限制了请求频次，请求频率过高，或 kimi 服务器过载，可以适当调整请求频率，或者等待一段时间再试。");
+    console.error(error.code);
+    console.error(error.message);
+  }
+}
