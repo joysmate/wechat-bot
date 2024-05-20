@@ -45,46 +45,70 @@ const configuration = {
 }
 
 export async function getKimiReply(prompt, userId) {
-  // let t1 = new Date();
-  // let history = await queryRecentTexts(userId, t1);
-  // console.log(JSON.stringify(history));
+  let t1 = new Date();
+  let history = await queryRecentTexts(userId, t1);
 
-  // await insertData(t1.toISOString(), userId, prompt, 'user');
-
-  // let t2 = new Date();
-  // await insertData(t2.toISOString(), userId, choices[0].message.content, 'assistant');
-  let history = "";
   let reply = await getKimiInitReply(history, prompt);
   let judge = await getKimiJudgeReply(history, prompt, reply);
+  
+  await insertData(t1.toISOString(), userId, prompt, 'user');
+
   const keyword = "改进意见：";
   const index = judge.indexOf(keyword);
-  let reply1 = "不变";
+  let t2 = new Date();
+
   if (index !== -1) {
     judge = judge.slice(index + keyword.length);
-    reply1 = await getKimiUpdateReply(history, prompt, reply, judge);
+    let reply1 = await getKimiUpdateReply(history, prompt, reply, judge);
+    const kw1 = "圣严法师：";
+    const idx1 = reply1.indexOf(kw1);
+    if (idx1 !== -1) {
+      reply1 = reply1.slice(idx1 + kw1.length);
+    }
+    await insertData(t2.toISOString(), userId, reply1, 'assistant');
+    //return reply + "（修改后：" + reply1 + "）"
+    return reply1;
   }
-  return reply + "（修改后：" + reply1 + "）";
+
+  await insertData(t2.toISOString(), userId, reply, 'assistant');
+  //return reply + "（无需修改）";
+  return reply;
 }
 
 async function getKimiInitReply(history, prompt) {
   try {
     let sys = [
-      // {
-      //   role: "system",
-      //   content: file_content,
-      // },
+      {
+        role: "system",
+        content: file_content,
+      },
       {
         role: "system",
         // 刚刚上传的qa1s.txt，是圣严法师的佛学著作，包含他对佛学的主要观点。
         content: `你是圣严法师机器人，你需要扮演圣严法师和用户聊天，以通过你的图灵测试。
 圣严法师和用户聊天时，往往会结合自己的佛学观点，来安抚用户的情绪，开导用户，为用户答疑解惑。
-圣严法师说话言简意赅，往往采用口语化的表达，绝不会使用书面格式。
+圣严法师说话言简意赅，通常不会超过3句，且往往采用口语化的表达，绝不会使用书面格式。
 这意味着，你的回复必须让用户无法分辨你是圣严法师还是机器人。`
       }
     ]
 
-    let msgs = sys; //.concat(history);
-    msgs.push({role: "user", content: prompt});
+    let xprompt = "（" + prompt + `）
+    括号里是我说的最后一句话，在回复我之前，你需要根据我们之间的历史对话来判断我们的对话场景处于以下哪一种状态：
+    1. 新话题开始；
+    2. 我在表达自己的情绪或烦心事儿；
+    3. 我提出一个具体的问题；
+    4. 我们已经关于一个话题进行了多轮对话，应该做出总结性陈述了。
+    接着，你根据判断的结果按照如下规则进行回复：
+    如果是1，你应该想办法更好的了解我的意图，你可以选择问我一个相关问题，来获取更多意图信息；
+    如果是2，你可以顺着我的情绪，选择问一些开导性的启发性的问题，让对话继续；
+    如果是3，你可以给出较为具体的答案，然后根据情况，引导我进行更深入的讨论；
+    如果是4，你应该结合你的佛学理念，给出较为完整的解答来结束这个话题，而不是让这个话题无限延续。
+    注意，你的回复里不需要包含任何判断结果，直接按照判断的结果生成回复，并返回回复的内容即可。
+    `;
+
+
+    let msgs = sys.concat(history);
+    msgs.push({role: "user", content: xprompt});
     console.log(msgs)
 
     const res = await axios.post(server.chat, Object.assign(configuration, {
@@ -132,11 +156,21 @@ async function getKimiJudgeReply(history, prompt, reply) {
       }
     ]
 
-    let flatten_history = "（\n我：" + prompt + "\n圣严法师：" + reply + '\n）\n';
+    let flatten_history = "（";
+    
+    history.forEach(d => {
+      if (d.role == "user") {
+        flatten_history += "\n我：" + d.content;
+      } else if (d.role == "assistant") {
+        flatten_history += "\n圣严法师：" + d.content;
+      }
+    });
+
+    flatten_history += "\n我：" + prompt + "\n圣严法师：" + reply + '\n）\n';
 
     let xprompt = flatten_history + `以上括号里是我和圣严法师的对话记录。
 圣严法师和用户聊天时，往往会结合自己的佛学观点，来安抚用户的情绪，开导用户，为用户答疑解惑。
-圣严法师说话言简意赅，往往采用口语化的表达，绝不会使用书面格式。
+圣严法师说话言简意赅，通常不会超过3句，且往往采用口语化的表达，绝不会使用书面格式。
 请帮我判断圣严法师的最后一条回复是他本人所写，还是机器人编写的？
 如果你判断是圣严法师本人所写，请直接返回“是本人”三个字，且不要包含其他任何内容。
 如果你判断是机器人编写的，请返回“是机器人编写的”，并返回一条你认为最重要的改进意见。`
@@ -191,10 +225,21 @@ async function getKimiUpdateReply(history, prompt, reply, judge) {
       }
     ]
 
-    let flatten_history = "（\n用户：" + prompt + "\n圣严法师：" + reply + '\n）\n';
+    let flatten_history = "（";
+    
+    history.forEach(d => {
+      if (d.role == "user") {
+        flatten_history += "\n我：" + d.content;
+      } else if (d.role == "assistant") {
+        flatten_history += "\n圣严法师：" + d.content;
+      }
+    });
+
+    flatten_history += "\n我：" + prompt + "\n圣严法师：" + reply + '\n）\n';
 
     let xprompt = flatten_history + `以上括号里是用户和圣严法师的对话记录。
 请按照以下中括号内的改进意见，修改圣严法师的最后一条回复，并直接返回修改过的回复。
+记住，你只需要返回修改后的回复，不需要添加任何额外的前缀文本。
 改进意见是：【` + judge + '】'
 
     let msgs = sys;
